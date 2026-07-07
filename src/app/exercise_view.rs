@@ -178,26 +178,20 @@ fn fmt_time(secs: u32) -> String {
     format!("{:02}:{:02}", m, s)
 }
 
-pub fn exercise_view(screen: &Signal<Screen>) -> View {
-    let Screen::ExerciseView(idx) = screen.get() else {
-        unreachable!()
-    };
-    let all = exercises::all_exercises();
-    let exercise = all[idx].clone();
-
-    let bpm = create_signal(exercise.default_bpm);
-    let playing = create_signal(false);
-    let cur_pos = create_signal(None);
-    let pb_state = Rc::new(RefCell::new(PlaybackState::new()));
-    let pb_notes = Rc::new(exercise.notes.clone());
-    let font_size = create_signal::<u16>(16);
-    let count_in_mode = create_signal(CountInMode::FirstLoop);
-    let remaining_secs = create_signal(exercise.default_duration_secs);
-    let default_duration = exercise.default_duration_secs;
-
-    let on_play: Rc<dyn Fn(MouseEvent)> = Rc::new({
-        let pn = pb_notes.clone();
-        let pb = pb_state.clone();
+#[allow(clippy::too_many_arguments)]
+fn make_on_play(
+    pb_notes: Rc<Vec<exercises::Note>>,
+    pb_state: Rc<RefCell<PlaybackState>>,
+    bpm: Signal<u16>,
+    playing: Signal<bool>,
+    cur_pos: Signal<Option<usize>>,
+    count_in_mode: Signal<CountInMode>,
+    remaining_secs: Signal<u32>,
+    default_duration: u32,
+) -> Rc<dyn Fn(MouseEvent)> {
+    Rc::new({
+        let pn = pb_notes;
+        let pb = pb_state;
         move |_: web_sys::MouseEvent| {
             pb.borrow_mut().cancel();
             remaining_secs.set(default_duration);
@@ -232,10 +226,18 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
                 }));
             }
         }
-    });
+    })
+}
 
-    let on_stop: Rc<dyn Fn(MouseEvent)> = Rc::new({
-        let pb = pb_state.clone();
+fn make_on_stop(
+    pb_state: Rc<RefCell<PlaybackState>>,
+    cur_pos: Signal<Option<usize>>,
+    remaining_secs: Signal<u32>,
+    playing: Signal<bool>,
+    default_duration: u32,
+) -> Rc<dyn Fn(MouseEvent)> {
+    Rc::new({
+        let pb = pb_state;
         move |_: web_sys::MouseEvent| {
             pb.borrow_mut().cancel();
             spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
@@ -243,133 +245,226 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
             remaining_secs.set(default_duration);
             playing.set(false);
         }
-    });
+    })
+}
 
-    let on_back = {
-        let s = *screen;
-        let pb = pb_state;
-        move |_| {
-            if playing.get() {
-                pb.borrow_mut().cancel();
-                spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
-                cur_pos.set(None);
-                remaining_secs.set(default_duration);
-                playing.set(false);
-            }
-            s.set(Screen::ExerciseList)
+fn make_on_back(
+    screen: &Signal<Screen>,
+    pb_state: Rc<RefCell<PlaybackState>>,
+    playing: Signal<bool>,
+    cur_pos: Signal<Option<usize>>,
+    remaining_secs: Signal<u32>,
+    default_duration: u32,
+) -> Rc<dyn Fn(MouseEvent)> {
+    let s = *screen;
+    let pb = pb_state;
+    Rc::new(move |_: MouseEvent| {
+        if playing.get() {
+            pb.borrow_mut().cancel();
+            spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
+            cur_pos.set(None);
+            remaining_secs.set(default_duration);
+            playing.set(false);
         }
-    };
+        s.set(Screen::ExerciseList)
+    })
+}
 
-    let name = exercise.name.clone();
-    let note_count = exercise.notes.len();
-    let picking = exercise.picking.clone();
-    let fingering = exercise.fingering;
-    let viewbox_w = 28 + note_count * 36 + 10;
-    let fret_notes_row = pb_notes.clone();
-    let fret_notes_tab = pb_notes;
+fn dur_row_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+    view! {
+        div(class="ev-section") {
+            h2 { "Note Duration" }
+            div(class="dur-row") { ({
+                let n2 = notes.clone();
+                move || (0..n).map(|i| {
+                    let d = DUR_SYMS[n2[i].duration as usize];
+                    view! { span(class=if Some(i) == cur_pos.get() { "dur-sym active" } else { "dur-sym" }) { (d) } }
+                }).collect::<Vec<View>>()
+            }) }
+        }
+    }
+}
 
+fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+    let viewbox_w = 28 + n * 36 + 10;
+    view! {
+        div(class="ev-section") {
+            h2 { "Tablature" }
+            div(class="tab-wrap") {
+                svg(
+                    xmlns="http://www.w3.org/2000/svg",
+                    viewBox=format!("0 0 {} 170", viewbox_w),
+                    width="100%",
+                    height="170",
+                    class="tab-svg"
+                ) {
+                    (tab_lines(n))
+                    ({
+                        let n2 = notes.clone();
+                        move || {
+                            let p = cur_pos.get();
+                            const STRING_YS: [i32; 6] = [28, 52, 76, 100, 124, 148];
+                            n2.iter().enumerate().map(|(i, note)| {
+                                let x = 28 + i * 36 + 12;
+                                let sy = STRING_YS[(note.string - 1) as usize];
+                                let fret = format!("{}", note.fret);
+                                let cls = if Some(i) == p { "fret active" } else { "fret" };
+                                view! {
+                                    text(
+                                        x=format!("{}", x), y=format!("{}", sy + 5),
+                                        class=cls, font-size="13", font-weight="bold",
+                                        font-family="monospace", text-anchor="middle"
+                                    ) { (fret) }
+                                }
+                            }).collect::<Vec<View>>()
+                        }
+                    })
+                }
+            }
+        }
+    }
+}
+
+fn picking_section(picking: Vec<exercises::PickingDirection>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+    view! {
+        div(class="ev-section") {
+            h2 { "Picking Pattern" }
+            div(class="pick-row") { ({
+                let pi = picking.clone();
+                move || (0..n).map(|i| {
+                    let sym = pick_sym(pi[i % pi.len()]);
+                    view! { span(class=if Some(i) == cur_pos.get() { "pick-sym active" } else { "pick-sym" }) { (sym) } }
+                }).collect::<Vec<View>>()
+            }) }
+        }
+    }
+}
+
+fn fingering_section(fingering: Vec<exercises::Finger>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+    view! {
+        div(class="ev-section") {
+            h2 { "Fingering" }
+            div(class="finger-row") { ({
+                let fi = fingering.clone();
+                move || (0..n).map(|i| {
+                    let label = finger_label(fi[i % fi.len()]);
+                    view! { span(class=if Some(i) == cur_pos.get() { "finger-sym active" } else { "finger-sym" }) { (label) } }
+                }).collect::<Vec<View>>()
+            }) }
+        }
+    }
+}
+
+fn header_section(
+    name: String,
+    font_size: Signal<u16>,
+    on_back: Rc<dyn Fn(MouseEvent)>,
+) -> View {
     let on_font_inc = move |_| font_size.update(|v| *v = (*v + 2).min(32));
     let on_font_dec = move |_| font_size.update(|v| *v = v.saturating_sub(2).max(10));
+    let ob = on_back.clone();
+
+    view! {
+        div(class="ev-header") {
+            button(on:click=move |ev| ob(ev)) { "\u{2190} Back" }
+            h1 { (name) }
+            span(class="spacer")
+            div(class="font-ctrl") {
+                button(on:click=on_font_dec) { "A-" }
+                span { (font_size.get()) }
+                button(on:click=on_font_inc) { "A+" }
+            }
+        }
+    }
+}
+
+fn transport_section(
+    playing: Signal<bool>,
+    on_play: Rc<dyn Fn(MouseEvent)>,
+    on_stop: Rc<dyn Fn(MouseEvent)>,
+) -> View {
+    view! {
+        div(class="ev-section controls-row") {
+            div(class="ctrl transport-wrap") {
+                (if playing.get() {
+                    let s = on_stop.clone();
+                    view! { button(class="transport stop", on:click=move |ev| s(ev)) { "\u{25A0}" } }
+                } else {
+                    let p = on_play.clone();
+                    view! { button(class="transport play", on:click=move |ev| p(ev)) { "\u{25B6}" } }
+                })
+            }
+        }
+    }
+}
+
+pub fn exercise_view(screen: &Signal<Screen>) -> View {
+    let Screen::ExerciseView(idx) = screen.get() else {
+        unreachable!()
+    };
+    let all = exercises::all_exercises();
+    let exercise = all[idx].clone();
+
+    let bpm = create_signal(exercise.default_bpm);
+    let playing = create_signal(false);
+    let cur_pos = create_signal(None);
+    let pb_state = Rc::new(RefCell::new(PlaybackState::new()));
+    let pb_notes = Rc::new(exercise.notes.clone());
+    let font_size = create_signal::<u16>(16);
+    let count_in_mode = create_signal(CountInMode::FirstLoop);
+    let remaining_secs = create_signal(exercise.default_duration_secs);
+    let default_duration = exercise.default_duration_secs;
+
+    let on_play = make_on_play(
+        pb_notes.clone(),
+        pb_state.clone(),
+        bpm,
+        playing,
+        cur_pos,
+        count_in_mode,
+        remaining_secs,
+        default_duration,
+    );
+    let on_stop = make_on_stop(
+        pb_state.clone(),
+        cur_pos,
+        remaining_secs,
+        playing,
+        default_duration,
+    );
+    let on_back = make_on_back(
+        screen,
+        pb_state,
+        playing,
+        cur_pos,
+        remaining_secs,
+        default_duration,
+    );
+
+    let n = exercise.notes.len();
+    let pn1 = pb_notes.clone();
+    let pn2 = pb_notes;
+    let ob = on_back;
+    let op = on_play;
+    let os = on_stop;
 
     view! {
         div(class="ev") {
-            div(class="ev-header") {
-                button(on:click=on_back) { "\u{2190} Back" }
-                h1 { (name) }
-                span(class="spacer")
-                div(class="font-ctrl") {
-                    button(on:click=on_font_dec) { "A-" }
-                    span { (font_size.get()) }
-                    button(on:click=on_font_inc) { "A+" }
-                }
-            }
+            (header_section(exercise.name.clone(), font_size, ob.clone()))
             div(
                 class="ev-body",
-                style=format!("font-size: {}px", font_size.get())
+                style=move || format!("font-size: {}px", font_size.get())
             ) {
-                div(class="ev-section") {
-                    h2 { "Note Duration" }
-                    div(class="dur-row") { ({
-                        let notes = fret_notes_row.clone();
-                        let n = note_count;
-                        move || (0..n).map(|i| {
-                            let d = DUR_SYMS[notes[i].duration as usize];
-                            view! { span(class=if Some(i) == cur_pos.get() { "dur-sym active" } else { "dur-sym" }) { (d) } }
-                        }).collect::<Vec<View>>()
-                    }) }
-                }
-                div(class="ev-section") {
-                    h2 { "Tablature" }
-                    div(class="tab-wrap") {
-                        svg(
-                            xmlns="http://www.w3.org/2000/svg",
-                            viewBox=format!("0 0 {} 170", viewbox_w),
-                            width="100%",
-                            height="170",
-                            class="tab-svg"
-                        ) {
-                            (tab_lines(note_count))
-                            ({
-                                let notes = fret_notes_tab.clone();
-                                move || {
-                                    let p = cur_pos.get();
-                                    const STRING_YS: [i32; 6] = [28, 52, 76, 100, 124, 148];
-                                    notes.iter().enumerate().map(|(i, note)| {
-                                        let x = 28 + i * 36 + 12;
-                                        let sy = STRING_YS[(note.string - 1) as usize];
-                                        let fret = format!("{}", note.fret);
-                                        let cls = if Some(i) == p { "fret active" } else { "fret" };
-                                        view! {
-                                            text(
-                                                x=format!("{}", x), y=format!("{}", sy + 5),
-                                                class=cls, font-size="13", font-weight="bold",
-                                                font-family="monospace", text-anchor="middle"
-                                            ) { (fret) }
-                                        }
-                                    }).collect::<Vec<View>>()
-                                }
-                            })
-                        }
-                    }
-                }
-                div(class="ev-section") {
-                    h2 { "Picking Pattern" }
-                    div(class="pick-row") { ({
-                        let pi = picking.clone();
-                        let n = note_count;
-                        move || (0..n).map(|i| {
-                            let sym = pick_sym(pi[i % pi.len()]);
-                            view! { span(class=if Some(i) == cur_pos.get() { "pick-sym active" } else { "pick-sym" }) { (sym) } }
-                        }).collect::<Vec<View>>()
-                    }) }
-                }
-                div(class="ev-section") {
-                    h2 { "Fingering" }
-                    div(class="finger-row") { ({
-                        let fi = fingering.clone();
-                        let n = note_count;
-                        move || (0..n).map(|i| {
-                            let label = finger_label(fi[i % fi.len()]);
-                            view! { span(class=if Some(i) == cur_pos.get() { "finger-sym active" } else { "finger-sym" }) { (label) } }
-                        }).collect::<Vec<View>>()
-                    }) }
-                }
+                (dur_row_section(pn1.clone(), n, cur_pos))
+                (tablature_section(pn2.clone(), n, cur_pos))
+                (picking_section(exercise.picking.clone(), n, cur_pos))
+                (fingering_section(exercise.fingering.clone(), n, cur_pos))
                 div(class="ev-section controls-row") {
                     (bpm_control(bpm))
                     (count_in_control(count_in_mode))
                     (timer_display(remaining_secs))
                 }
-                div(class="ev-section controls-row") {
-                    div(class="ctrl transport-wrap") {
-                        (if playing.get() {
-                            let cb = on_stop.clone();
-                            view! { button(class="transport stop", on:click=move |ev| cb(ev)) { "\u{25A0}" } }
-                        } else {
-                            let cb = on_play.clone();
-                            view! { button(class="transport play", on:click=move |ev| cb(ev)) { "\u{25B6}" } }
-                        })
-                    }
-                }
+                (transport_section(playing, op.clone(), os.clone()))
             }
         }
     }
