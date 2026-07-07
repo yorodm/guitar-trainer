@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "guitar-trainer",
+  "version": "0.1.0",
+  "identifier": "com.github.yorodm.guitar-trainer",
+  "build": {
+    "beforeDevCommand": "trunk serve",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "trunk build --release",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "guitar-trainer",
+        "width": 800,
+        "height": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../soundfont.sf2": "soundfont.sf2",
+      "resources/exercises.json": "exercises.json"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

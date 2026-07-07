@@ -1,0 +1,563 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  color: #0f0f0f;
+  background-color: #f6f6f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+.container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Main Screen */
+.main-screen {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 100%;
+  height: 100%;
+  padding: 4rem;
+}
+
+.logo-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-area img {
+  max-width: 300px;
+  height: auto;
+}
+
+.button-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.main-btn {
+  width: 240px;
+  padding: 1rem 2rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+/* Generic screen */
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  width: 100%;
+}
+
+/* Buttons */
+input,
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  color: #0f0f0f;
+  background-color: #ffffff;
+  transition: border-color 0.25s;
+  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #396cd8;
+}
+
+button:active {
+  border-color: #396cd8;
+  background-color: #e8e8e8;
+}
+
+input,
+button {
+  outline: none;
+}
+
+/* Exercise View */
+.ev {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ev-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.ev-header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.ev-header .spacer {
+  flex: 1;
+}
+
+.font-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.font-ctrl button {
+  font-size: 0.85rem;
+  padding: 0.25em 0.5em;
+  min-width: 0;
+  text-transform: none;
+}
+
+.font-ctrl span {
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 24px;
+  text-align: center;
+}
+
+.ev-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.ev-section {
+  margin-bottom: 1.5rem;
+}
+
+.ev-section h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+.controls-row {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+/* Note duration row */
+.dur-row {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.dur-sym {
+  font-size: 1.1rem;
+  width: 24px;
+  text-align: center;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 4px;
+  padding: 1px 0;
+}
+
+.dur-sym.active {
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+/* Tab wrap */
+.tab-wrap {
+  overflow-x: auto;
+}
+
+.tab-svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.tab-svg text.fret {
+  fill: #000;
+}
+
+.tab-svg text.fret.active {
+  fill: #22c55e;
+}
+
+/* Picking row */
+.pick-row {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.pick-sym {
+  font-size: 1.1rem;
+  width: 24px;
+  text-align: center;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 4px;
+  padding: 1px 0;
+}
+
+.pick-sym.active {
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+/* Finger row */
+.finger-row {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.finger-sym {
+  font-size: 1rem;
+  font-weight: 600;
+  width: 24px;
+  text-align: center;
+  color: #396cd8;
+  transition: color 0.15s, background 0.15s;
+  border-radius: 4px;
+  padding: 1px 0;
+}
+
+.finger-sym.active {
+  color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+/* Controls */
+.ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ctrl label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+}
+
+.ctrl-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ctrl-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ctrl-val {
+  font-size: 1.3rem;
+  font-weight: 600;
+  min-width: 60px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ci-btn {
+  font-size: 0.8rem;
+  padding: 0.4em 0.8em;
+}
+
+.ci-btn.active {
+  background-color: #396cd8;
+  color: white;
+  border-color: #396cd8;
+}
+
+.timer-val {
+  font-size: 1.3rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 60px;
+  text-align: center;
+}
+
+.transport-wrap button {
+  width: 48px;
+  height: 48px;
+  font-size: 1.4rem;
+}
+
+.transport.play {
+  background-color: #22c55e;
+  color: white;
+  border-color: #22c55e;
+}
+
+.transport.stop {
+  background-color: #ef4444;
+  color: white;
+  border-color: #ef4444;
+}
+
+/* Practice screen */
+.practice-screen {
+  width: 100%;
+  max-width: 600px;
+  text-align: left;
+  padding: 2rem;
+}
+
+.practice-screen h1 {
+  margin-bottom: 0.5rem;
+}
+
+.practice-screen p {
+  font-size: 0.9rem;
+  color: #888;
+  margin-bottom: 1.5rem;
+}
+
+.prac-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.prac-cat-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5em 0.75em;
+  background: #f0f0f0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  user-select: none;
+}
+
+.prac-cat-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #396cd8;
+  box-shadow: none;
+}
+
+.prac-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.sec-btn {
+  background-color: transparent;
+  box-shadow: none;
+  border-color: #ccc;
+}
+
+/* Category tabs */
+.cat-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+
+.cat-tab {
+  font-size: 0.85rem;
+  padding: 0.4em 0.9em;
+  background: #f0f0f0;
+  border-color: #e0e0e0;
+  box-shadow: none;
+}
+
+.cat-tab.active {
+  background: #396cd8;
+  color: white;
+  border-color: #396cd8;
+}
+
+/* Exercise browser */
+.ex-browser {
+  width: 100%;
+  max-width: 600px;
+  text-align: left;
+}
+
+.ex-category {
+  margin-bottom: 1.5rem;
+}
+
+.ex-category h2 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  color: #555;
+}
+
+.ex-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ex-item {
+  text-align: left;
+  padding: 0.5em 1em;
+  background-color: #f0f0f0;
+  border: 1px solid #e0e0e0;
+  font-size: 0.9rem;
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f6f6f6;
+    background-color: #2f2f2f;
+  }
+
+  .ev-header {
+    border-bottom-color: #444;
+  }
+
+  .finger-sym {
+    color: #60a5fa;
+  }
+
+  .dur-sym.active {
+    background-color: rgba(34, 197, 94, 0.2);
+  }
+
+  .pick-sym.active {
+    background-color: rgba(34, 197, 94, 0.2);
+  }
+
+  .finger-sym.active {
+    background-color: rgba(34, 197, 94, 0.2);
+  }
+
+  .ci-btn.active {
+    background-color: #60a5fa;
+    border-color: #60a5fa;
+  }
+
+  .transport.play {
+    background-color: #22c55e;
+  }
+
+  .transport.stop {
+    background-color: #ef4444;
+  }
+
+  .prac-cat-label {
+    background: #3a3a3a;
+  }
+
+  .cat-tab {
+    background: #3a3a3a;
+    border-color: #555;
+  }
+
+  .cat-tab.active {
+    background: #60a5fa;
+    border-color: #60a5fa;
+  }
+
+  .ex-item {
+    background-color: #3a3a3a;
+    border-color: #555;
+    color: #f0f0f0;
+  }
+
+  .tab-svg text.fret {
+    fill: #f0f0f0;
+  }
+
+  .tab-svg text.fret.active {
+    fill: #22c55e;
+  }
+
+  .tab-svg line {
+    stroke: #666 !important;
+  }
+
+  input,
+  button {
+    color: #ffffff;
+    background-color: #0f0f0f98;
+  }
+
+  button:active {
+    background-color: #0f0f0f69;
+  }
+}
+
+/* Responsive: narrow screens */
+@media (max-width: 640px) {
+  .ev-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .ev-header h1 {
+    font-size: 1rem;
+  }
+
+  .ev-body {
+    padding: 1rem;
+  }
+
+  .ev-section h2 {
+    font-size: 0.75rem;
+  }
+
+  .controls-row {
+    gap: 1rem;
+  }
+}
