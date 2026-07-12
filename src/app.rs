@@ -66,6 +66,8 @@ fn practice_section(screen: &Signal<Screen>) -> View {
     let all = Rc::new(crate::exercises::all_exercises().clone());
     let checked = create_signal(vec![false; cats.len()]);
 
+    let any_checked = create_selector(move || checked.with(|v| v.iter().any(|&x| x)));
+
     let on_start = move |_| {
         let ch = checked.with(|v| v.clone());
         let mut picked: Vec<usize> = Vec::new();
@@ -114,9 +116,18 @@ fn practice_section(screen: &Signal<Screen>) -> View {
             p { "Select one or more categories. A random exercise will be chosen from each." }
             div(class="prac-categories") { (checkboxes) }
             div(class="prac-actions") {
-                button(on:click=on_start) { "Start Practice" }
+                button(
+                    disabled=!any_checked.get(),
+                    class=if any_checked.get() { "main-btn" } else { "main-btn disabled" },
+                    on:click=on_start
+                ) { "Start Practice" }
                 button(class="sec-btn", on:click=on_back) { "Back" }
             }
+            (if !any_checked.get() {
+                view! { p(class="prac-hint") { "Select at least one category above." } }
+            } else {
+                view! {}
+            })
         }
     }
 }

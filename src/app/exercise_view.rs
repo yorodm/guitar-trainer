@@ -39,14 +39,16 @@ impl PlaybackState {
 }
 
 const fn note_duration_ms(duration: exercises::NoteDuration, bpm: u16) -> u32 {
+    let bpm = if bpm == 0 { 1 } else { bpm };
     let quarter = 60_000 / bpm as u32;
-    match duration {
+    let ms = match duration {
         exercises::NoteDuration::Whole => quarter * 4,
         exercises::NoteDuration::Half => quarter * 2,
         exercises::NoteDuration::Quarter => quarter,
         exercises::NoteDuration::Eighth => quarter / 2,
         exercises::NoteDuration::Sixteenth => quarter / 4,
-    }
+    };
+    if ms == 0 { 1 } else { ms }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,10 +61,12 @@ fn schedule_tick(
     cur_pos: Signal<Option<usize>>,
     count_in_mode: Signal<CountInMode>,
     remaining_secs: Signal<u32>,
+    count_beat: Signal<Option<u8>>,
 ) {
     if remaining_secs.get() == 0 {
         playing.set(false);
         cur_pos.set(None);
+        count_beat.set(None);
         return;
     }
 
@@ -71,16 +75,17 @@ fn schedule_tick(
         if ci == CountInMode::EveryLoop {
             let n2 = notes;
             let s2 = state.clone();
-            schedule_countin(0, bpm_sig, playing, state, cur_pos, Rc::new(move || {
-                schedule_tick(0, n2.clone(), bpm_sig, playing, s2.clone(), cur_pos, count_in_mode, remaining_secs);
+            schedule_countin(0, bpm_sig, playing, state, cur_pos, count_beat, Rc::new(move || {
+                schedule_tick(0, n2.clone(), bpm_sig, playing, s2.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
             }));
         } else {
-            schedule_tick(0, notes, bpm_sig, playing, state, cur_pos, count_in_mode, remaining_secs);
+            schedule_tick(0, notes, bpm_sig, playing, state, cur_pos, count_in_mode, remaining_secs, count_beat);
         }
         return;
     }
 
     cur_pos.set(Some(pos));
+    count_beat.set(None);
 
     let bpm = bpm_sig.get();
     let note = &notes[pos];
@@ -110,7 +115,7 @@ fn schedule_tick(
         });
 
         let next_pos = pos + 1;
-        schedule_tick(next_pos, notes2, bpm_sig, playing, state2, cur_pos, count_in_mode, remaining_secs);
+        schedule_tick(next_pos, notes2, bpm_sig, playing, state2, cur_pos, count_in_mode, remaining_secs, count_beat);
     });
 
     state.borrow_mut().timeout = Some(timeout);
@@ -122,20 +127,23 @@ fn schedule_countin(
     playing: Signal<bool>,
     state: Rc<RefCell<PlaybackState>>,
     cur_pos: Signal<Option<usize>>,
+    count_beat: Signal<Option<u8>>,
     on_done: Rc<dyn Fn()>,
 ) {
     if beat >= 4 || !playing.get() {
+        count_beat.set(None);
         (on_done)();
         return;
     }
 
+    count_beat.set(Some(beat));
     cur_pos.set(None);
-    let bpm = bpm_sig.get();
+    let bpm = bpm_sig.get().max(1);
     let quarter_ms = 60_000 / bpm as u32;
 
     let state2 = state.clone();
     let timeout = Timeout::new(quarter_ms, move || {
-        schedule_countin(beat + 1, bpm_sig, playing, state2, cur_pos, on_done);
+        schedule_countin(beat + 1, bpm_sig, playing, state2, cur_pos, count_beat, on_done);
     });
 
     state.borrow_mut().timeout = Some(timeout);
@@ -187,6 +195,7 @@ fn make_on_play(
     cur_pos: Signal<Option<usize>>,
     count_in_mode: Signal<CountInMode>,
     remaining_secs: Signal<u32>,
+    count_beat: Signal<Option<u8>>,
     default_duration: u32,
 ) -> Rc<dyn Fn(MouseEvent)> {
     Rc::new({
@@ -200,6 +209,7 @@ fn make_on_play(
             let interval = Interval::new(1000, {
                 let pb2 = pb.clone();
                 let p2 = playing;
+                let cb = count_beat;
                 move || {
                     remaining_secs.update(|v| {
                         if *v > 0 {
@@ -209,6 +219,7 @@ fn make_on_play(
                     if remaining_secs.get() == 0 {
                         pb2.borrow_mut().cancel();
                         spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
+                        cb.set(None);
                         p2.set(false);
                     }
                 }
@@ -217,12 +228,12 @@ fn make_on_play(
 
             let ci_mode = count_in_mode.get();
             if ci_mode == CountInMode::None {
-                schedule_tick(0, pn.clone(), bpm, playing, pb.clone(), cur_pos, count_in_mode, remaining_secs);
+                schedule_tick(0, pn.clone(), bpm, playing, pb.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
             } else {
                 let pn2 = pn.clone();
                 let pb2 = pb.clone();
-                schedule_countin(0, bpm, playing, pb.clone(), cur_pos, Rc::new(move || {
-                    schedule_tick(0, pn2.clone(), bpm, playing, pb2.clone(), cur_pos, count_in_mode, remaining_secs);
+                schedule_countin(0, bpm, playing, pb.clone(), cur_pos, count_beat, Rc::new(move || {
+                    schedule_tick(0, pn2.clone(), bpm, playing, pb2.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
                 }));
             }
         }
@@ -234,6 +245,7 @@ fn make_on_stop(
     cur_pos: Signal<Option<usize>>,
     remaining_secs: Signal<u32>,
     playing: Signal<bool>,
+    count_beat: Signal<Option<u8>>,
     default_duration: u32,
 ) -> Rc<dyn Fn(MouseEvent)> {
     Rc::new({
@@ -242,6 +254,7 @@ fn make_on_stop(
             pb.borrow_mut().cancel();
             spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
             cur_pos.set(None);
+            count_beat.set(None);
             remaining_secs.set(default_duration);
             playing.set(false);
         }
@@ -254,6 +267,7 @@ fn make_on_back(
     playing: Signal<bool>,
     cur_pos: Signal<Option<usize>>,
     remaining_secs: Signal<u32>,
+    count_beat: Signal<Option<u8>>,
     default_duration: u32,
 ) -> Rc<dyn Fn(MouseEvent)> {
     let s = *screen;
@@ -263,6 +277,7 @@ fn make_on_back(
             pb.borrow_mut().cancel();
             spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
             cur_pos.set(None);
+            count_beat.set(None);
             remaining_secs.set(default_duration);
             playing.set(false);
         }
@@ -294,6 +309,7 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                 svg(
                     xmlns="http://www.w3.org/2000/svg",
                     viewBox=format!("0 0 {} 170", viewbox_w),
+                    preserveAspectRatio="xMinYMid meet",
                     width="100%",
                     height="170",
                     class="tab-svg"
@@ -366,13 +382,16 @@ fn header_section(
 
     view! {
         div(class="ev-header") {
-            button(on:click=move |ev| ob(ev)) { "\u{2190} Back" }
+            div(class="ev-header-left") {
+                button(on:click=move |ev| ob(ev)) { "\u{2190} Back" }
+            }
             h1 { (name) }
-            span(class="spacer")
-            div(class="font-ctrl") {
-                button(on:click=on_font_dec) { "A-" }
-                span { (font_size.get()) }
-                button(on:click=on_font_inc) { "A+" }
+            div(class="ev-header-right") {
+                div(class="font-ctrl") {
+                    button(on:click=on_font_dec) { "A-" }
+                    span { (font_size.get()) }
+                    button(on:click=on_font_inc) { "A+" }
+                }
             }
         }
     }
@@ -414,6 +433,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
     let count_in_mode = create_signal(CountInMode::FirstLoop);
     let remaining_secs = create_signal(exercise.default_duration_secs);
     let default_duration = exercise.default_duration_secs;
+    let count_beat = create_signal(None::<u8>);
 
     let on_play = make_on_play(
         pb_notes.clone(),
@@ -423,6 +443,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
         cur_pos,
         count_in_mode,
         remaining_secs,
+        count_beat,
         default_duration,
     );
     let on_stop = make_on_stop(
@@ -430,6 +451,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
         cur_pos,
         remaining_secs,
         playing,
+        count_beat,
         default_duration,
     );
     let on_back = make_on_back(
@@ -438,6 +460,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
         playing,
         cur_pos,
         remaining_secs,
+        count_beat,
         default_duration,
     );
 
@@ -447,6 +470,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
     let ob = on_back;
     let op = on_play;
     let os = on_stop;
+    let cb = count_beat;
 
     view! {
         div(class="ev") {
@@ -462,6 +486,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
                 div(class="ev-section controls-row") {
                     (bpm_control(bpm))
                     (count_in_control(count_in_mode))
+                    (count_in_indicator(cb))
                     (timer_display(remaining_secs))
                 }
                 (transport_section(playing, op.clone(), os.clone()))
@@ -535,6 +560,22 @@ fn count_in_control(mode: Signal<CountInMode>) -> View {
                     on:click=set_every
                 ) { "All" }
             }
+        }
+    }
+}
+
+fn count_in_indicator(beat: Signal<Option<u8>>) -> View {
+    let dots = move || {
+        let b = beat.get();
+        (0..4).map(|i| {
+            let active = b == Some(i as u8);
+            view! { span(class=if active { "ci-dot active" } else { "ci-dot" }) { (i + 1) } }
+        }).collect::<Vec<View>>()
+    };
+    view! {
+        div(class="ctrl") {
+            label { "Count-in" }
+            div(class="ci-dots") { (dots) }
         }
     }
 }
