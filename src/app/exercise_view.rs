@@ -300,39 +300,80 @@ fn dur_row_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Op
     }
 }
 
-fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
-    let viewbox_w = 28 + n * 36 + 10;
+fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>, font_size: Signal<u16>) -> View {
     view! {
         div(class="ev-section") {
             h2 { "Tablature" }
             div(class="tab-wrap") {
                 svg(
                     xmlns="http://www.w3.org/2000/svg",
-                    viewBox=format!("0 0 {} 170", viewbox_w),
+                    viewBox=move || {
+                        let s = font_size.get() as f32 / 16.0;
+                        format!("0 0 {} {}", 28 + n * 36 + 10, (170.0 * s) as i32)
+                    },
                     preserveAspectRatio="xMinYMid meet",
                     width="100%",
-                    height="170",
+                    height=move || format!("{}", (170.0 * font_size.get() as f32 / 16.0) as i32),
                     class="tab-svg"
                 ) {
-                    (tab_lines(n))
                     ({
                         let n2 = notes.clone();
                         move || {
+                            let fs = font_size.get() as f32 / 16.0;
+                            let top = (28.0 * fs) as i32;
+                            let spacing = (24.0 * fs) as i32;
+                            let text_off = (font_size.get() as i32 * 5 / 16).max(3);
+                            let str_ys: [i32; 6] = [
+                                top,
+                                top + spacing,
+                                top + spacing * 2,
+                                top + spacing * 3,
+                                top + spacing * 4,
+                                top + spacing * 5,
+                            ];
+                            let label_names = ["e", "B", "G", "D", "A", "E"];
                             let p = cur_pos.get();
-                            const STRING_YS: [i32; 6] = [28, 52, 76, 100, 124, 148];
-                            n2.iter().enumerate().map(|(i, note)| {
-                                let x = 28 + i * 36 + 12;
-                                let sy = STRING_YS[(note.string - 1) as usize];
+                            let x2 = 28 + n * 36;
+
+                            let mut els: Vec<View> = Vec::new();
+                            for (i, sy) in str_ys.iter().enumerate() {
+                                let sy = *sy;
+                                let y1 = sy.to_string();
+                                let x2s = x2.to_string();
+                                let y2 = sy.to_string();
+                                els.push(view! {
+                                    line(
+                                        x1="28", y1=y1,
+                                        x2=x2s, y2=y2,
+                                        stroke="#999", stroke-width="1"
+                                    )
+                                });
+                                let lbl_y = (sy + text_off).to_string();
+                                let lbl_font = format!("{}", (font_size.get() as f32 * 0.75) as u16);
+                                els.push(view! {
+                                    text(
+                                        x="4", y=lbl_y,
+                                        fill="#888", font-size=lbl_font, font-weight="bold",
+                                        font-family="monospace"
+                                    ) { (label_names[i]) }
+                                });
+                            }
+                            for (i, note) in n2.iter().enumerate() {
+                                let x = (28 + i * 36 + 12).to_string();
+                                let sy = str_ys[(note.string - 1) as usize];
+                                let y = (sy + text_off).to_string();
                                 let fret = format!("{}", note.fret);
                                 let cls = if Some(i) == p { "fret active" } else { "fret" };
-                                view! {
+                                let ft = format!("{}", (font_size.get() as f32 * 0.8125) as u16);
+                                els.push(view! {
                                     text(
-                                        x=format!("{}", x), y=format!("{}", sy + 5),
-                                        class=cls, font-size="13", font-weight="bold",
+                                        x=x, y=y,
+                                        class=cls, font-size=ft, font-weight="bold",
                                         font-family="monospace", text-anchor="middle"
                                     ) { (fret) }
-                                }
-                            }).collect::<Vec<View>>()
+                                });
+                            }
+                            els
                         }
                     })
                 }
@@ -480,7 +521,7 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
                 style=move || format!("font-size: {}px", font_size.get())
             ) {
                 (dur_row_section(pn1.clone(), n, cur_pos))
-                (tablature_section(pn2.clone(), n, cur_pos))
+                (tablature_section(pn2.clone(), n, cur_pos, font_size))
                 (picking_section(exercise.picking.clone(), n, cur_pos))
                 (fingering_section(exercise.fingering.clone(), n, cur_pos))
                 div(class="ev-section controls-row") {
@@ -493,33 +534,6 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
             }
         }
     }
-}
-
-fn tab_lines(note_count: usize) -> Vec<View> {
-    let col_w = 36;
-    let start_x = 28;
-    const STRING_YS: [i32; 6] = [28, 52, 76, 100, 124, 148];
-    let label_names = ["e", "B", "G", "D", "A", "E"];
-
-    let mut els = Vec::new();
-    for (i, sy) in STRING_YS.iter().enumerate() {
-        let x2 = start_x + note_count * col_w;
-        els.push(view! {
-            line(
-                x1=format!("{}", start_x), y1=format!("{}", sy),
-                x2=format!("{}", x2), y2=format!("{}", sy),
-                stroke="#999", stroke-width="1"
-            )
-        });
-        els.push(view! {
-            text(
-                x="4", y=format!("{}", sy + 5),
-                fill="#888", font-size="12", font-weight="bold",
-                font-family="monospace"
-            ) { (label_names[i]) }
-        });
-    }
-    els
 }
 
 fn bpm_control(bpm: Signal<u16>) -> View {
