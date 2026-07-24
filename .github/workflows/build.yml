@@ -28,7 +28,7 @@ jobs:
             librsvg2-dev patchelf libssl-dev libgtk-3-dev
 
       - name: Install trunk
-        run: cargo install trunk
+        run: cargo install trunk --locked
 
       - name: Build
         run: cargo tauri build
@@ -52,7 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install trunk
-        run: cargo install trunk
+        run: cargo install trunk --locked
 
       - name: Build
         run: cargo tauri build
@@ -76,7 +76,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install trunk
-        run: cargo install trunk
+        run: cargo install trunk --locked
 
       - name: Build
         run: cargo tauri build --target x86_64-apple-darwin
@@ -100,7 +100,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install trunk
-        run: cargo install trunk
+        run: cargo install trunk --locked
 
       - name: Build
         run: cargo tauri build --target aarch64-apple-darwin
