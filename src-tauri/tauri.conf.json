@@ -26,7 +26,7 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../soundfont.sf2": "soundfont.sf2",
+      "resources/soundfont.sf2": "soundfont.sf2",
       "resources/exercises.json": "exercises.json"
     },
     "icon": [
