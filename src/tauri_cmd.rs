@@ -8,13 +8,22 @@ extern "C" {
     pub async fn invoke(cmd: &str, args: JsValue) -> JsValue;
 }
 
+fn warn(msg: &str) {
+    web_sys::console::warn_1(&msg.into());
+}
+
 pub async fn play_note(string: u8, fret: u8) {
     let args = serde_wasm_bindgen::to_value(&serde_json::json!({
         "string": string,
         "fret": fret,
     }))
     .unwrap();
-    invoke("play_note", args).await;
+    let result = invoke("play_note", args).await;
+    if let Some(err) = result.as_string() {
+        if !err.is_empty() {
+            warn(&format!("play_note failed: {}", err));
+        }
+    }
 }
 
 pub async fn stop_note(string: u8, fret: u8) {
@@ -23,12 +32,22 @@ pub async fn stop_note(string: u8, fret: u8) {
         "fret": fret,
     }))
     .unwrap();
-    invoke("stop_note", args).await;
+    let result = invoke("stop_note", args).await;
+    if let Some(err) = result.as_string() {
+        if !err.is_empty() {
+            warn(&format!("stop_note failed: {}", err));
+        }
+    }
 }
 
 pub async fn stop_all_notes() {
     let args = serde_wasm_bindgen::to_value(&serde_json::json!({})).unwrap();
-    invoke("stop_all_notes", args).await;
+    let result = invoke("stop_all_notes", args).await;
+    if let Some(err) = result.as_string() {
+        if !err.is_empty() {
+            warn(&format!("stop_all_notes failed: {}", err));
+        }
+    }
 }
 
 pub async fn load_exercises() -> Option<String> {

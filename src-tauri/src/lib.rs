@@ -14,10 +14,12 @@ fn send_cmd(
     cmd: audio::AudioCommand,
 ) -> Result<(), String> {
     let guard = state.cmd_tx.lock().map_err(|e| e.to_string())?;
-    match guard.as_ref() {
-        Some(tx) => tx.send(cmd).map_err(|_| "audio channel closed".to_string()),
-        None => Err("audio not available".to_string()),
-    }
+    guard
+        .as_ref()
+        .map_or_else(
+            || Err("audio not available".to_string()),
+            |tx| tx.send(cmd).map_err(|_| "audio channel closed".to_string()),
+        )
 }
 
 #[tauri::command]
@@ -38,15 +40,6 @@ fn stop_all_notes(state: tauri::State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn audio_status(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let guard = state.cmd_tx.lock().map_err(|e| e.to_string())?;
-    match guard.as_ref() {
-        Some(_) => Ok("ok".to_string()),
-        None => Ok("no_soundfont".to_string()),
-    }
-}
-
-#[tauri::command]
 fn load_exercises(app_handle: tauri::AppHandle) -> Result<String, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Ok(dir) = app_handle.path().resource_dir() {
@@ -63,7 +56,7 @@ fn load_exercises(app_handle: tauri::AppHandle) -> Result<String, String> {
     candidates.push(PathBuf::from("../resources/exercises.json"));
     candidates.push(PathBuf::from("exercises.json"));
     for p in &candidates {
-        if let Ok(content) = std::fs::read_to_string(&p) {
+        if let Ok(content) = std::fs::read_to_string(p) {
             return Ok(content);
         }
     }
@@ -98,7 +91,6 @@ pub fn run() {
             play_note,
             stop_note,
             stop_all_notes,
-            audio_status,
             load_exercises,
         ])
         .run(tauri::generate_context!())

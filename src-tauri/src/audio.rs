@@ -48,7 +48,7 @@ impl AudioEngine {
             }
         });
 
-        Ok(AudioEngine { cmd_tx })
+        Ok(Self { cmd_tx })
     }
 
     fn run_audio_thread(
@@ -89,18 +89,6 @@ impl AudioEngine {
         drop(sink);
         drop(stream);
         Ok(())
-    }
-
-    pub fn note_on(&self, key: u8) {
-        let _ = self.cmd_tx.send(AudioCommand::NoteOn(key));
-    }
-
-    pub fn note_off(&self, key: u8) {
-        let _ = self.cmd_tx.send(AudioCommand::NoteOff(key));
-    }
-
-    pub fn stop_all(&self) {
-        let _ = self.cmd_tx.send(AudioCommand::StopAll);
     }
 }
 
@@ -191,7 +179,7 @@ pub fn default_soundfont_path(resource_dir: Option<&Path>) -> PathBuf {
     PathBuf::from("soundfont.sf2")
 }
 
-pub fn midi_key(string: u8, fret: u8) -> u8 {
+pub const fn midi_key(string: u8, fret: u8) -> u8 {
     let base = match string {
         1 => 64,
         2 => 59,

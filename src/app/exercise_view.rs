@@ -38,6 +38,19 @@ impl PlaybackState {
     }
 }
 
+#[derive(Clone)]
+struct PlaybackCtx {
+    notes: Rc<Vec<exercises::Note>>,
+    pb_state: Rc<RefCell<PlaybackState>>,
+    bpm: Signal<u16>,
+    playing: Signal<bool>,
+    cur_pos: Signal<Option<usize>>,
+    count_in_mode: Signal<CountInMode>,
+    remaining_secs: Signal<u32>,
+    count_beat: Signal<Option<u8>>,
+    default_duration: u32,
+}
+
 const fn note_duration_ms(duration: exercises::NoteDuration, bpm: u16) -> u32 {
     let bpm = if bpm == 0 { 1 } else { bpm };
     let quarter = 60_000 / bpm as u32;
@@ -51,102 +64,86 @@ const fn note_duration_ms(duration: exercises::NoteDuration, bpm: u16) -> u32 {
     if ms == 0 { 1 } else { ms }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn schedule_tick(
-    pos: usize,
-    notes: Rc<Vec<exercises::Note>>,
-    bpm_sig: Signal<u16>,
-    playing: Signal<bool>,
-    state: Rc<RefCell<PlaybackState>>,
-    cur_pos: Signal<Option<usize>>,
-    count_in_mode: Signal<CountInMode>,
-    remaining_secs: Signal<u32>,
-    count_beat: Signal<Option<u8>>,
-) {
-    if remaining_secs.get() == 0 {
-        playing.set(false);
-        cur_pos.set(None);
-        count_beat.set(None);
+fn stop_all(ctx: &PlaybackCtx) {
+    ctx.pb_state.borrow_mut().cancel();
+    spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
+    ctx.cur_pos.set(None);
+    ctx.count_beat.set(None);
+    ctx.remaining_secs.set(ctx.default_duration);
+    ctx.playing.set(false);
+}
+
+fn schedule_tick(pos: usize, ctx: &PlaybackCtx) {
+    if ctx.remaining_secs.get() == 0 {
+        ctx.playing.set(false);
+        ctx.cur_pos.set(None);
+        ctx.count_beat.set(None);
         return;
     }
 
-    if pos >= notes.len() {
-        let ci = count_in_mode.get();
-        if ci == CountInMode::EveryLoop {
-            let n2 = notes;
-            let s2 = state.clone();
-            schedule_countin(0, bpm_sig, playing, state, cur_pos, count_beat, Rc::new(move || {
-                schedule_tick(0, n2.clone(), bpm_sig, playing, s2.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
+    if pos >= ctx.notes.len() {
+        if ctx.count_in_mode.get() == CountInMode::EveryLoop {
+            let ctx2 = ctx.clone();
+            schedule_countin(0, ctx, Rc::new(move || {
+                schedule_tick(0, &ctx2);
             }));
         } else {
-            schedule_tick(0, notes, bpm_sig, playing, state, cur_pos, count_in_mode, remaining_secs, count_beat);
+            schedule_tick(0, ctx);
         }
         return;
     }
 
-    cur_pos.set(Some(pos));
-    count_beat.set(None);
+    ctx.cur_pos.set(Some(pos));
+    ctx.count_beat.set(None);
 
-    let bpm = bpm_sig.get();
-    let note = &notes[pos];
-    let dur_ms = note_duration_ms(note.duration, bpm);
+    let dur_ms = note_duration_ms(ctx.notes[pos].duration, ctx.bpm.get());
 
     spawn_local({
-        let s = note.string;
-        let f = note.fret;
+        let s = ctx.notes[pos].string;
+        let f = ctx.notes[pos].fret;
         async move {
             crate::tauri_cmd::play_note(s, f).await;
         }
     });
 
-    let state2 = state.clone();
-    let notes2 = notes.clone();
+    let ctx2 = ctx.clone();
     let timeout = Timeout::new(dur_ms, move || {
-        if !playing.get() {
+        if !ctx2.playing.get() {
             return;
         }
 
         spawn_local({
-            let s = notes2[pos].string;
-            let f = notes2[pos].fret;
+            let s = ctx2.notes[pos].string;
+            let f = ctx2.notes[pos].fret;
             async move {
                 crate::tauri_cmd::stop_note(s, f).await;
             }
         });
 
-        let next_pos = pos + 1;
-        schedule_tick(next_pos, notes2, bpm_sig, playing, state2, cur_pos, count_in_mode, remaining_secs, count_beat);
+        schedule_tick(pos + 1, &ctx2);
     });
 
-    state.borrow_mut().timeout = Some(timeout);
+    ctx.pb_state.borrow_mut().timeout = Some(timeout);
 }
 
-fn schedule_countin(
-    beat: u8,
-    bpm_sig: Signal<u16>,
-    playing: Signal<bool>,
-    state: Rc<RefCell<PlaybackState>>,
-    cur_pos: Signal<Option<usize>>,
-    count_beat: Signal<Option<u8>>,
-    on_done: Rc<dyn Fn()>,
-) {
-    if beat >= 4 || !playing.get() {
-        count_beat.set(None);
+fn schedule_countin(beat: u8, ctx: &PlaybackCtx, on_done: Rc<dyn Fn()>) {
+    if beat >= 4 || !ctx.playing.get() {
+        ctx.count_beat.set(None);
         (on_done)();
         return;
     }
 
-    count_beat.set(Some(beat));
-    cur_pos.set(None);
-    let bpm = bpm_sig.get().max(1);
+    ctx.count_beat.set(Some(beat));
+    ctx.cur_pos.set(None);
+    let bpm = ctx.bpm.get().max(1);
     let quarter_ms = 60_000 / bpm as u32;
 
-    let state2 = state.clone();
+    let ctx2 = ctx.clone();
     let timeout = Timeout::new(quarter_ms, move || {
-        schedule_countin(beat + 1, bpm_sig, playing, state2, cur_pos, count_beat, on_done);
+        schedule_countin(beat + 1, &ctx2, on_done);
     });
 
-    state.borrow_mut().timeout = Some(timeout);
+    ctx.pb_state.borrow_mut().timeout = Some(timeout);
 }
 
 pub fn grouped_exercises() -> Vec<(exercises::Category, Vec<exercises::Exercise>)> {
@@ -161,6 +158,7 @@ pub fn grouped_exercises() -> Vec<(exercises::Category, Vec<exercises::Exercise>
     groups
 }
 
+// Whole, Beamed eighths, Quarter, Eighth, Beamed sixteenths
 const DUR_SYMS: &[&str] = &["\u{1D15D}", "\u{266C}", "\u{2669}", "\u{266A}", "\u{266B}"];
 
 const fn pick_sym(d: exercises::PickingDirection) -> &'static str {
@@ -186,112 +184,61 @@ fn fmt_time(secs: u32) -> String {
     format!("{:02}:{:02}", m, s)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn make_on_play(
-    pb_notes: Rc<Vec<exercises::Note>>,
-    pb_state: Rc<RefCell<PlaybackState>>,
-    bpm: Signal<u16>,
-    playing: Signal<bool>,
-    cur_pos: Signal<Option<usize>>,
-    count_in_mode: Signal<CountInMode>,
-    remaining_secs: Signal<u32>,
-    count_beat: Signal<Option<u8>>,
-    default_duration: u32,
-) -> Rc<dyn Fn(MouseEvent)> {
-    Rc::new({
-        let pn = pb_notes;
-        let pb = pb_state;
-        move |_: web_sys::MouseEvent| {
-            pb.borrow_mut().cancel();
-            remaining_secs.set(default_duration);
-            playing.set(true);
-
-            let interval = Interval::new(1000, {
-                let pb2 = pb.clone();
-                let p2 = playing;
-                let cb = count_beat;
-                move || {
-                    remaining_secs.update(|v| {
-                        if *v > 0 {
-                            *v -= 1;
-                        }
-                    });
-                    if remaining_secs.get() == 0 {
-                        pb2.borrow_mut().cancel();
-                        spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
-                        cb.set(None);
-                        p2.set(false);
-                    }
-                }
-            });
-            pb.borrow_mut().timer = Some(interval);
-
-            let ci_mode = count_in_mode.get();
-            if ci_mode == CountInMode::None {
-                schedule_tick(0, pn.clone(), bpm, playing, pb.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
-            } else {
-                let pn2 = pn.clone();
-                let pb2 = pb.clone();
-                schedule_countin(0, bpm, playing, pb.clone(), cur_pos, count_beat, Rc::new(move || {
-                    schedule_tick(0, pn2.clone(), bpm, playing, pb2.clone(), cur_pos, count_in_mode, remaining_secs, count_beat);
-                }));
-            }
-        }
-    })
-}
-
-fn make_on_stop(
-    pb_state: Rc<RefCell<PlaybackState>>,
-    cur_pos: Signal<Option<usize>>,
-    remaining_secs: Signal<u32>,
-    playing: Signal<bool>,
-    count_beat: Signal<Option<u8>>,
-    default_duration: u32,
-) -> Rc<dyn Fn(MouseEvent)> {
-    Rc::new({
-        let pb = pb_state;
-        move |_: web_sys::MouseEvent| {
-            pb.borrow_mut().cancel();
-            spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
-            cur_pos.set(None);
-            count_beat.set(None);
-            remaining_secs.set(default_duration);
-            playing.set(false);
-        }
-    })
-}
-
-fn make_on_back(
-    screen: &Signal<Screen>,
-    pb_state: Rc<RefCell<PlaybackState>>,
-    playing: Signal<bool>,
-    cur_pos: Signal<Option<usize>>,
-    remaining_secs: Signal<u32>,
-    count_beat: Signal<Option<u8>>,
-    default_duration: u32,
-) -> Rc<dyn Fn(MouseEvent)> {
-    let s = *screen;
-    let pb = pb_state;
+fn make_on_play(ctx: PlaybackCtx) -> Rc<dyn Fn(MouseEvent)> {
     Rc::new(move |_: MouseEvent| {
-        if playing.get() {
-            pb.borrow_mut().cancel();
-            spawn_local(async { crate::tauri_cmd::stop_all_notes().await; });
-            cur_pos.set(None);
-            count_beat.set(None);
-            remaining_secs.set(default_duration);
-            playing.set(false);
+        ctx.pb_state.borrow_mut().cancel();
+        ctx.remaining_secs.set(ctx.default_duration);
+        ctx.playing.set(true);
+
+        let interval = Interval::new(1000, {
+            let ctx2 = ctx.clone();
+            move || {
+                ctx2.remaining_secs.update(|v| {
+                    if *v > 0 {
+                        *v -= 1;
+                    }
+                });
+                if ctx2.remaining_secs.get() == 0 {
+                    stop_all(&ctx2);
+                }
+            }
+        });
+        ctx.pb_state.borrow_mut().timer = Some(interval);
+
+        if ctx.count_in_mode.get() == CountInMode::None {
+            schedule_tick(0, &ctx);
+        } else {
+            let ctx2 = ctx.clone();
+            schedule_countin(0, &ctx, Rc::new(move || {
+                schedule_tick(0, &ctx2);
+            }));
+        }
+    })
+}
+
+fn make_on_stop(ctx: PlaybackCtx) -> Rc<dyn Fn(MouseEvent)> {
+    Rc::new(move |_: MouseEvent| {
+        stop_all(&ctx);
+    })
+}
+
+fn make_on_back(screen: &Signal<Screen>, ctx: PlaybackCtx) -> Rc<dyn Fn(MouseEvent)> {
+    let s = *screen;
+    Rc::new(move |_: MouseEvent| {
+        if ctx.playing.get() {
+            stop_all(&ctx);
         }
         s.set(Screen::ExerciseList)
     })
 }
 
-fn dur_row_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+fn dur_row_section(notes: Rc<Vec<exercises::Note>>, note_count: usize, cur_pos: Signal<Option<usize>>) -> View {
     view! {
         div(class="ev-section") {
             h2 { "Note Duration" }
             div(class="dur-row") { ({
                 let n2 = notes.clone();
-                move || (0..n).map(|i| {
+                move || (0..note_count).map(|i| {
                     let d = DUR_SYMS[n2[i].duration as usize];
                     view! { span(class=if Some(i) == cur_pos.get() { "dur-sym active" } else { "dur-sym" }) { (d) } }
                 }).collect::<Vec<View>>()
@@ -300,7 +247,7 @@ fn dur_row_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Op
     }
 }
 
-fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<Option<usize>>, font_size: Signal<u16>) -> View {
+fn tablature_section(notes: Rc<Vec<exercises::Note>>, note_count: usize, cur_pos: Signal<Option<usize>>, font_size: Signal<u16>) -> View {
     view! {
         div(class="ev-section") {
             h2 { "Tablature" }
@@ -309,7 +256,7 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                     xmlns="http://www.w3.org/2000/svg",
                     viewBox=move || {
                         let s = font_size.get() as f32 / 16.0;
-                        format!("0 0 {} {}", 28 + n * 36 + 10, (170.0 * s) as i32)
+                        format!("0 0 {} {}", 28 + note_count * 36 + 10, (170.0 * s) as i32)
                     },
                     preserveAspectRatio="xMinYMid meet",
                     width="100%",
@@ -319,10 +266,11 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                     ({
                         let n2 = notes.clone();
                         move || {
-                            let fs = font_size.get() as f32 / 16.0;
+                            let fs_val = font_size.get();
+                            let fs = fs_val as f32 / 16.0;
                             let top = (28.0 * fs) as i32;
                             let spacing = (24.0 * fs) as i32;
-                            let text_off = (font_size.get() as i32 * 5 / 16).max(3);
+                            let text_off = (fs_val as i32 * 5 / 16).max(3);
                             let str_ys: [i32; 6] = [
                                 top,
                                 top + spacing,
@@ -333,7 +281,7 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                             ];
                             let label_names = ["e", "B", "G", "D", "A", "E"];
                             let p = cur_pos.get();
-                            let x2 = 28 + n * 36;
+                            let x2 = 28 + note_count * 36;
 
                             let mut els: Vec<View> = Vec::new();
                             for (i, sy) in str_ys.iter().enumerate() {
@@ -343,13 +291,13 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                                 let y2 = sy.to_string();
                                 els.push(view! {
                                     line(
+                                        class="tab-line",
                                         x1="28", y1=y1,
-                                        x2=x2s, y2=y2,
-                                        stroke="#999", stroke-width="1"
+                                        x2=x2s, y2=y2
                                     )
                                 });
                                 let lbl_y = (sy + text_off).to_string();
-                                let lbl_font = format!("{}", (font_size.get() as f32 * 0.75) as u16);
+                                let lbl_font = format!("{}", (fs_val as f32 * 0.75) as u16);
                                 els.push(view! {
                                     text(
                                         x="4", y=lbl_y,
@@ -364,7 +312,7 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
                                 let y = (sy + text_off).to_string();
                                 let fret = format!("{}", note.fret);
                                 let cls = if Some(i) == p { "fret active" } else { "fret" };
-                                let ft = format!("{}", (font_size.get() as f32 * 0.8125) as u16);
+                                let ft = format!("{}", (fs_val as f32 * 0.8125) as u16);
                                 els.push(view! {
                                     text(
                                         x=x, y=y,
@@ -382,13 +330,13 @@ fn tablature_section(notes: Rc<Vec<exercises::Note>>, n: usize, cur_pos: Signal<
     }
 }
 
-fn picking_section(picking: Vec<exercises::PickingDirection>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+fn picking_section(picking: Vec<exercises::PickingDirection>, note_count: usize, cur_pos: Signal<Option<usize>>) -> View {
     view! {
         div(class="ev-section") {
             h2 { "Picking Pattern" }
             div(class="pick-row") { ({
                 let pi = picking.clone();
-                move || (0..n).map(|i| {
+                move || (0..note_count).map(|i| {
                     let sym = pick_sym(pi[i % pi.len()]);
                     view! { span(class=if Some(i) == cur_pos.get() { "pick-sym active" } else { "pick-sym" }) { (sym) } }
                 }).collect::<Vec<View>>()
@@ -397,13 +345,13 @@ fn picking_section(picking: Vec<exercises::PickingDirection>, n: usize, cur_pos:
     }
 }
 
-fn fingering_section(fingering: Vec<exercises::Finger>, n: usize, cur_pos: Signal<Option<usize>>) -> View {
+fn fingering_section(fingering: Vec<exercises::Finger>, note_count: usize, cur_pos: Signal<Option<usize>>) -> View {
     view! {
         div(class="ev-section") {
             h2 { "Fingering" }
             div(class="finger-row") { ({
                 let fi = fingering.clone();
-                move || (0..n).map(|i| {
+                move || (0..note_count).map(|i| {
                     let label = finger_label(fi[i % fi.len()]);
                     view! { span(class=if Some(i) == cur_pos.get() { "finger-sym active" } else { "finger-sym" }) { (label) } }
                 }).collect::<Vec<View>>()
@@ -465,72 +413,52 @@ pub fn exercise_view(screen: &Signal<Screen>) -> View {
     let all = exercises::all_exercises();
     let exercise = all[idx].clone();
 
-    let bpm = create_signal(exercise.default_bpm);
-    let playing = create_signal(false);
-    let cur_pos = create_signal(None);
-    let pb_state = Rc::new(RefCell::new(PlaybackState::new()));
-    let pb_notes = Rc::new(exercise.notes.clone());
+    let ctx = PlaybackCtx {
+        notes: Rc::new(exercise.notes.clone()),
+        pb_state: Rc::new(RefCell::new(PlaybackState::new())),
+        bpm: create_signal(exercise.default_bpm),
+        playing: create_signal(false),
+        cur_pos: create_signal(None),
+        count_in_mode: create_signal(CountInMode::FirstLoop),
+        remaining_secs: create_signal(exercise.default_duration_secs),
+        count_beat: create_signal(None::<u8>),
+        default_duration: exercise.default_duration_secs,
+    };
+
     let font_size = create_signal::<u16>(16);
-    let count_in_mode = create_signal(CountInMode::FirstLoop);
-    let remaining_secs = create_signal(exercise.default_duration_secs);
-    let default_duration = exercise.default_duration_secs;
-    let count_beat = create_signal(None::<u8>);
 
-    let on_play = make_on_play(
-        pb_notes.clone(),
-        pb_state.clone(),
-        bpm,
-        playing,
-        cur_pos,
-        count_in_mode,
-        remaining_secs,
-        count_beat,
-        default_duration,
-    );
-    let on_stop = make_on_stop(
-        pb_state.clone(),
-        cur_pos,
-        remaining_secs,
-        playing,
-        count_beat,
-        default_duration,
-    );
-    let on_back = make_on_back(
-        screen,
-        pb_state,
-        playing,
-        cur_pos,
-        remaining_secs,
-        count_beat,
-        default_duration,
-    );
+    let on_play = make_on_play(ctx.clone());
+    let on_stop = make_on_stop(ctx.clone());
+    let on_back = make_on_back(screen, ctx.clone());
 
-    let n = exercise.notes.len();
-    let pn1 = pb_notes.clone();
-    let pn2 = pb_notes;
-    let ob = on_back;
-    let op = on_play;
-    let os = on_stop;
-    let cb = count_beat;
+    let note_count = exercise.notes.len();
+    let notes1 = ctx.notes.clone();
+    let notes2 = ctx.notes.clone();
+    let cur_pos = ctx.cur_pos;
+    let bpm = ctx.bpm;
+    let playing = ctx.playing;
+    let count_in_mode = ctx.count_in_mode;
+    let count_beat = ctx.count_beat;
+    let remaining_secs = ctx.remaining_secs;
 
     view! {
         div(class="ev") {
-            (header_section(exercise.name.clone(), font_size, ob.clone()))
+            (header_section(exercise.name.clone(), font_size, on_back.clone()))
             div(
                 class="ev-body",
                 style=move || format!("font-size: {}px", font_size.get())
             ) {
-                (dur_row_section(pn1.clone(), n, cur_pos))
-                (tablature_section(pn2.clone(), n, cur_pos, font_size))
-                (picking_section(exercise.picking.clone(), n, cur_pos))
-                (fingering_section(exercise.fingering.clone(), n, cur_pos))
+                (dur_row_section(notes1.clone(), note_count, cur_pos))
+                (tablature_section(notes2.clone(), note_count, cur_pos, font_size))
+                (picking_section(exercise.picking.clone(), note_count, cur_pos))
+                (fingering_section(exercise.fingering.clone(), note_count, cur_pos))
                 div(class="ev-section controls-row") {
                     (bpm_control(bpm))
                     (count_in_control(count_in_mode))
-                    (count_in_indicator(cb))
+                    (count_in_indicator(count_beat))
                     (timer_display(remaining_secs))
                 }
-                (transport_section(playing, op.clone(), os.clone()))
+                (transport_section(playing, on_play.clone(), on_stop.clone()))
             }
         }
     }
@@ -588,7 +516,7 @@ fn count_in_indicator(beat: Signal<Option<u8>>) -> View {
     };
     view! {
         div(class="ctrl") {
-            label { "Count-in" }
+            label { "Beat" }
             div(class="ci-dots") { (dots) }
         }
     }

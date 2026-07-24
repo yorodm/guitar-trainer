@@ -5,14 +5,28 @@ use std::sync::OnceLock;
 static EXERCISES: OnceLock<Vec<Exercise>> = OnceLock::new();
 
 pub fn set_exercises(data: Vec<Exercise>) {
+    validate_exercise_ids(&data);
     let _ = EXERCISES.set(data);
 }
 
 pub fn all_exercises() -> &'static Vec<Exercise> {
     EXERCISES.get_or_init(|| {
-        serde_json::from_str(include_str!("../src-tauri/resources/exercises.json"))
-            .expect("embedded exercises.json is valid")
+        let exercises: Vec<Exercise> = serde_json::from_str(include_str!("../src-tauri/resources/exercises.json"))
+            .expect("embedded exercises.json is valid");
+        validate_exercise_ids(&exercises);
+        exercises
     })
+}
+
+fn validate_exercise_ids(exercises: &[Exercise]) {
+    for (i, ex) in exercises.iter().enumerate() {
+        let expected = (i + 1) as u32;
+        assert!(
+            ex.id == expected,
+            "Exercise '{}' has id {} but expected {} (IDs must be contiguous starting at 1)",
+            ex.name, ex.id, expected
+        );
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]

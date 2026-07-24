@@ -101,6 +101,7 @@ button {
   background-color: #ffffff;
   transition: border-color 0.25s;
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+  outline: none;
 }
 
 button {
@@ -114,11 +115,6 @@ button:hover {
 button:active {
   border-color: #396cd8;
   background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
 }
 
 /* Exercise View */
@@ -260,6 +256,11 @@ button {
 
 .tab-svg text.fret.active {
   fill: #22c55e;
+}
+
+.tab-svg line.tab-line {
+  stroke: #999;
+  stroke-width: 1;
 }
 
 /* Picking row */
@@ -632,8 +633,8 @@ button {
     fill: #22c55e;
   }
 
-  .tab-svg line {
-    stroke: #666 !important;
+  .tab-svg line.tab-line {
+    stroke: #666;
   }
 
   input,
